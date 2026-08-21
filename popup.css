@@ -1,0 +1,46 @@
+:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --ink: #18233b; --muted: #667085; --line: #e5e7f0; --violet: #5146d8; --violet-dark: #4038b7; --soft: #f5f4ff; }
+* { box-sizing: border-box; }
+body { margin: 0; width: 392px; min-width: 340px; color: var(--ink); background: #f7f8fc; }
+main { width: 100%; max-width: 620px; padding: 20px; margin: 0 auto; }
+.app-header { display: flex; gap: 12px; align-items: center; margin: 0 2px 18px; }
+.mark { display: block; width: 42px; height: 42px; flex: 0 0 42px; border-radius: 12px; object-fit: cover; box-shadow: 0 4px 12px #4c46c52b; }
+.eyebrow { margin: 0 0 3px; color: #7168c8; font-size: 9px; font-weight: 800; letter-spacing: .13em; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { margin-bottom: 3px; font-size: 18px; letter-spacing: -.02em; line-height: 1.15; }
+.app-header > div > p:last-child { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.card { padding: 16px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 15px; background: #fff; box-shadow: 0 5px 18px #26315d08; }
+[data-session="idle"] .session-card, [data-session="idle"] .learned-card { display: none; }
+.setup-card.compact { padding: 11px 13px; display: flex; align-items: center; gap: 8px; }
+.setup-card.compact .section-heading, .setup-card.compact label, .setup-card.compact .filename input, .setup-card.compact .actions #start { display: none; }
+.setup-card.compact .filename { flex: 1; margin: 0; min-width: 0; }
+.setup-card.compact .filename::before { content: attr(data-name); overflow: hidden; color: #344054; font-size: 12px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.setup-card.compact .filename span { display: none; }
+.setup-card.compact .actions { margin: 0; flex: 0 0 auto; }
+.setup-card.compact .actions #end { min-width: 118px; }
+.setup-card.compact .panel-button { width: auto; flex: 0 0 auto; margin: 0; padding-inline: 10px; }
+.section-heading { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+.section-heading h2 { margin: 0 0 3px; font-size: 14px; letter-spacing: -.01em; }
+.section-heading p { max-width: 275px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.step { padding: 4px 6px; border-radius: 6px; color: #736bd0; background: var(--soft); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+label { display: block; margin: 0 0 6px; color: #536078; font-size: 10px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+input { width: 100%; min-height: 38px; padding: 9px 11px; border: 1px solid #d8dce8; border-radius: 8px; outline: none; color: inherit; background: #fff; font: inherit; font-size: 13px; transition: border-color .15s, box-shadow .15s; }
+input:hover { border-color: #afb5c9; } input:focus { border-color: var(--violet); box-shadow: 0 0 0 3px #5146d824; }
+.filename { display: flex; align-items: stretch; margin-bottom: 14px; } .filename input { border-radius: 8px 0 0 8px; } .filename span { display: grid; place-items: center; padding: 0 10px; border: 1px solid #d8dce8; border-left: 0; border-radius: 0 8px 8px 0; color: var(--muted); background: #f8f9fc; font-size: 12px; }
+.actions { display: flex; gap: 8px; margin-top: 12px; } button { min-height: 36px; flex: 1; padding: 8px 11px; border: 1px solid #d8ddea; border-radius: 8px; color: #344054; background: #fff; cursor: pointer; font: inherit; font-size: 11px; font-weight: 750; transition: background .15s, border-color .15s, color .15s, box-shadow .15s; }
+button:hover:not(:disabled) { border-color: #8f8add; color: var(--violet-dark); background: #fafaff; } button:focus-visible { outline: 3px solid #5146d84d; outline-offset: 2px; } button:disabled { cursor: not-allowed; opacity: .42; } button.primary { border-color: var(--violet); color: #fff; background: var(--violet); box-shadow: 0 3px 8px #5146d82e; } button.primary:hover:not(:disabled) { border-color: var(--violet-dark); color: #fff; background: var(--violet-dark); } button.danger { border-color: #f0cecf; color: #b42318; background: #fffafa; }
+.panel-button { width: 100%; margin-top: 9px; color: var(--violet-dark); background: var(--soft); } .panel-button span { margin-left: 3px; font-size: 13px; }
+.session-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 11px; border: 1px solid #e9e8fa; border-radius: 10px; background: #fbfbff; } #count { color: #302a91; font-size: 16px; letter-spacing: -.02em; }
+.pill { padding: 5px 8px; border-radius: 999px; color: #667085; background: #f0f2f6; font-size: 10px; font-weight: 800; } .pill.active { color: #067647; background: #eafaf1; }
+.muted { min-height: 28px; margin: 10px 1px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.subsection { margin-top: 15px; padding-top: 14px; border-top: 1px solid #eef0f5; }
+.advanced-disclosure { border-top: 1px solid #eef0f5; }
+.advanced-disclosure summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 0 2px; color: #344054; cursor: pointer; font-size: 11px; font-weight: 750; list-style: none; }
+.advanced-disclosure summary::-webkit-details-marker { display: none; }
+.advanced-disclosure summary::after { content: '+'; color: #7168c8; font-size: 16px; font-weight: 400; }
+.advanced-disclosure[open] summary::after { content: '−'; }
+.advanced-disclosure summary small { margin-left: auto; color: #98a2b3; font-size: 10px; font-weight: 500; }
+.advanced-disclosure[open] summary { padding-bottom: 2px; }
+.mode-notice, .auto-status { margin: 10px 0 0; padding: 9px 10px; border-radius: 8px; color: #4338ca; background: var(--soft); font-size: 11px; line-height: 1.4; } .auto-status { border: 1px solid #e5e1ff; }
+.message { min-height: 18px; margin: 8px 3px; color: #475467; font-size: 11px; line-height: 1.4; } .message.error { color: #b42318; }
+footer { display: flex; align-items: center; gap: 6px; margin: 12px 3px 0; color: #98a2b3; font-size: 10px; } .footer-dot { width: 6px; height: 6px; border-radius: 50%; background: #8c85dc; }
+@media (min-width: 520px) { body { width: 100%; } main { padding: 24px; } .card { padding: 18px; } }

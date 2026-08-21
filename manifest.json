@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Basora - Docs to README",
+  "description": "Capture documentation pages into a clean Markdown README with Basora.",
+  "version": "1.0.0",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Basora - Docs to README",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "permissions": ["activeTab", "scripting", "storage", "downloads", "sidePanel"],
+  "side_panel": {
+    "default_path": "popup.html?mode=panel"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": ["<all_urls>"]
+}
