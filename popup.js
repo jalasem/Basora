@@ -26,6 +26,7 @@ const els = {
 };
 let session = { active: false, filename: "README.md", pages: [] };
 let automation = { active: false, status: "" };
+let exporting = false;
 let pickerStatus = { status: "", hostname: "", message: "" };
 let currentHost = "";
 let selectors = {};
@@ -149,19 +150,22 @@ function render() {
   els.state.className = `pill${active ? " active" : ""}`;
   els.count.textContent = `${session.pages.length} page${session.pages.length === 1 ? "" : "s"}`;
   els.start.disabled = active;
-  els.end.disabled = !active;
-  els.capture.disabled = !active || auto;
-  els.next.disabled = !active || auto;
-  els.startAuto.disabled = !active || auto;
-  els.stopAuto.disabled = !auto;
-  els.chooseNext.disabled = auto;
-  els.forgetNext.disabled = !hasChosen || auto;
+  els.end.disabled = !active || exporting;
+  els.end.classList.toggle("loading", exporting);
+  els.end.setAttribute("aria-busy", String(exporting));
+  els.end.textContent = exporting ? "Preparing download…" : "End & download";
+  els.capture.disabled = !active || auto || exporting;
+  els.next.disabled = !active || auto || exporting;
+  els.startAuto.disabled = !active || auto || exporting;
+  els.stopAuto.disabled = !auto || exporting;
+  els.chooseNext.disabled = auto || exporting;
+  els.forgetNext.disabled = !hasChosen || auto || exporting;
   els.delayMode.value = timing.mode;
   els.delayMin.value = timing.minSeconds;
   els.delayMax.value = timing.maxSeconds;
-  els.delayMode.disabled = auto;
-  els.delayMin.disabled = auto;
-  els.delayMax.disabled = auto;
+  els.delayMode.disabled = auto || exporting;
+  els.delayMin.disabled = auto || exporting;
+  els.delayMax.disabled = auto || exporting;
   els.delayRange.parentElement.classList.toggle("instant", timing.mode === "instant");
   els.timingSummary.textContent =
     timing.mode === "instant"
@@ -322,12 +326,15 @@ async function openStickyPanel() {
   }
 }
 async function endSession() {
+  if (exporting) return;
   if (automation.active) await stopAuto();
   if (!session.pages.length)
     return setMessage(
       "Capture at least one page before ending the session.",
       true,
     );
+  exporting = true;
+  render();
   setMessage("Preparing Markdown and media…");
   try {
     const localized = await localizePages(session.pages);
@@ -357,12 +364,14 @@ async function endSession() {
       });
     session = { active: false, filename: session.filename, pages: [] };
     await persist();
-    render();
     setMessage(
       `Downloaded ${localized.assets.length ? `${baseName}.zip` : session.filename}.`,
     );
   } catch (e) {
     setMessage(`Export completed with errors: ${e.message}`, true);
+  } finally {
+    exporting = false;
+    render();
   }
 }
 async function localizePages(pages) {
