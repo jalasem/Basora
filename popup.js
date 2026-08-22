@@ -14,6 +14,11 @@ const els = {
   openPanel: $("openPanel"),
   modeNotice: $("modeNotice"),
   autoStatus: $("autoStatus"),
+  delayMode: $("delayMode"),
+  delayMin: $("delayMin"),
+  delayMax: $("delayMax"),
+  delayRange: $("delayRange"),
+  timingSummary: $("timingSummary"),
   state: $("state"),
   count: $("count"),
   lastPage: $("lastPage"),
@@ -24,6 +29,7 @@ let automation = { active: false, status: "" };
 let pickerStatus = { status: "", hostname: "", message: "" };
 let currentHost = "";
 let selectors = {};
+let timing = { mode: "range", minSeconds: 1, maxSeconds: 3 };
 document.addEventListener("DOMContentLoaded", async () => {
   await restore();
   els.start.addEventListener("click", startSession);
@@ -34,6 +40,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   els.stopAuto.addEventListener("click", stopAuto);
   els.chooseNext.addEventListener("click", chooseNext);
   els.forgetNext.addEventListener("click", forgetNext);
+  els.delayMode.addEventListener("change", saveTiming);
+  els.delayMin.addEventListener("change", saveTiming);
+  els.delayMax.addEventListener("change", saveTiming);
   if (isPanel) {
     els.openPanel.hidden = true;
     els.modeNotice.hidden = false;
@@ -48,6 +57,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       };
     if (changes.docsToReadmeSelectors || changes.docsToReadmePicker)
       await refreshCurrentSite();
+    if (changes.docsToReadmeTiming)
+      timing = normalizeTiming(changes.docsToReadmeTiming.newValue);
     render();
   });
   chrome.tabs.onActivated.addListener(() => refreshCurrentSite().then(render));
@@ -60,17 +71,25 @@ const normalizeSession = (s) => ({
   filename: s?.filename || "README.md",
   pages: Array.isArray(s?.pages) ? s.pages : [],
 });
+const normalizeTiming = (value) => {
+  const mode = value?.mode === "instant" ? "instant" : "range";
+  const minSeconds = Math.min(60, Math.max(0.5, Number(value?.minSeconds) || 1));
+  const maxSeconds = Math.min(60, Math.max(minSeconds, Number(value?.maxSeconds) || 3));
+  return { mode, minSeconds, maxSeconds };
+};
 async function restore() {
   const s = await chrome.storage.local.get([
     "docsToReadmeSession",
     "docsToReadmeAutomation",
     "docsToReadmePicker",
     "docsToReadmeSelectors",
+    "docsToReadmeTiming",
   ]);
   session = normalizeSession(s.docsToReadmeSession);
   automation = s.docsToReadmeAutomation || automation;
   pickerStatus = s.docsToReadmePicker || pickerStatus;
   selectors = s.docsToReadmeSelectors || {};
+  timing = normalizeTiming(s.docsToReadmeTiming);
   els.filename.value = session.filename.replace(/\.md$/i, "");
   await refreshCurrentSite();
   render();
@@ -137,6 +156,17 @@ function render() {
   els.stopAuto.disabled = !auto;
   els.chooseNext.disabled = auto;
   els.forgetNext.disabled = !hasChosen || auto;
+  els.delayMode.value = timing.mode;
+  els.delayMin.value = timing.minSeconds;
+  els.delayMax.value = timing.maxSeconds;
+  els.delayMode.disabled = auto;
+  els.delayMin.disabled = auto;
+  els.delayMax.disabled = auto;
+  els.delayRange.parentElement.classList.toggle("instant", timing.mode === "instant");
+  els.timingSummary.textContent =
+    timing.mode === "instant"
+      ? "Instant navigation"
+      : `${timing.minSeconds}–${timing.maxSeconds} sec between pages`;
   els.autoStatus.hidden = !auto && !automation.status;
   els.autoStatus.textContent = automation.status || "";
   els.nextStatus.hidden = !currentHost;
@@ -147,6 +177,15 @@ function render() {
       : `No chosen next button for ${currentHost}.`);
   if (session.pages.length)
     els.lastPage.textContent = `Last captured: ${session.pages.at(-1).title || session.pages.at(-1).url}`;
+}
+async function saveTiming() {
+  timing = normalizeTiming({
+    mode: els.delayMode.value,
+    minSeconds: els.delayMin.value,
+    maxSeconds: els.delayMax.value,
+  });
+  await chrome.storage.local.set({ docsToReadmeTiming: timing });
+  render();
 }
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

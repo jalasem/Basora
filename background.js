@@ -184,14 +184,14 @@ async function runAutomation(runId, tabId) {
       await chrome.storage.local.set({ docsToReadmeSession: session });
     }
     if (result.clicked) {
-      const delay = Math.floor(Math.random() * 2001) + 1000;
+      const delay = await getNavigationDelay();
       await setAutomation({
         active: true,
         runId,
         tabId,
-        status: `Captured ${session.pages.length} page${session.pages.length === 1 ? "" : "s"}. Clicking chosen button in ~${Math.ceil(delay / 1000)}s…`,
+        status: `Captured ${session.pages.length} page${session.pages.length === 1 ? "" : "s"}. ${delay ? `Clicking chosen button in ~${formatDelay(delay)}…` : "Clicking chosen button now…"}`,
       });
-      await wait(delay);
+      if (delay) await wait(delay);
       await currentState(runId);
       const [{ result: clicked }] = await chrome.scripting.executeScript({
         target: { tabId },
@@ -227,14 +227,14 @@ async function runAutomation(runId, tabId) {
     }
     if (visitedUrls.has(result.next))
       throw new Error("Cycle detected; auto capture stopped.");
-    const delay = Math.floor(Math.random() * 2001) + 1000;
+    const delay = await getNavigationDelay();
     await setAutomation({
       active: true,
       runId,
       tabId,
-      status: `Captured ${session.pages.length} page${session.pages.length === 1 ? "" : "s"}. Opening next page in ~${Math.ceil(delay / 1000)}s…`,
+      status: `Captured ${session.pages.length} page${session.pages.length === 1 ? "" : "s"}. ${delay ? `Opening next page in ~${formatDelay(delay)}…` : "Opening next page now…"}`,
     });
-    await wait(delay);
+    if (delay) await wait(delay);
     await currentState(runId);
     await chrome.tabs.update(tabId, { url: result.next });
     await waitForNavigationReady(
@@ -302,6 +302,18 @@ function collectMedia() {
 }
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function getNavigationDelay() {
+  const { docsToReadmeTiming: value } =
+    await chrome.storage.local.get("docsToReadmeTiming");
+  if (value?.mode === "instant") return 0;
+  const min = Math.min(60, Math.max(0.5, Number(value?.minSeconds) || 1));
+  const max = Math.min(60, Math.max(min, Number(value?.maxSeconds) || 3));
+  return Math.round((min + Math.random() * (max - min)) * 1000);
+}
+function formatDelay(milliseconds) {
+  const seconds = milliseconds / 1000;
+  return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
 }
 async function waitForNavigationReady(
   tabId,

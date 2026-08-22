@@ -33,7 +33,21 @@
           <button id="next" disabled>Open next page</button>
         </div>
         <details class="subsection advanced-disclosure" id="autoDisclosure">
-          <summary><span>Automatic crawl</span><small>1–3 sec between pages</small></summary>
+          <summary><span>Automatic crawl</span><small id="timingSummary">1–3 sec between pages</small></summary>
+          <div class="timing-control" aria-label="Navigation timing">
+            <label for="delayMode">Navigation speed</label>
+            <select id="delayMode">
+              <option value="range">Wait between pages</option>
+              <option value="instant">Instant</option>
+            </select>
+            <div id="delayRange" class="delay-range">
+              <label for="delayMin">Minimum seconds</label>
+              <input id="delayMin" type="number" min="0.5" max="60" step="0.5" value="1">
+              <span aria-hidden="true">to</span>
+              <label for="delayMax">Maximum seconds</label>
+              <input id="delayMax" type="number" min="0.5" max="60" step="0.5" value="3">
+            </div>
+          </div>
           <div class="actions auto-actions">
             <button id="startAuto" disabled>Start auto capture</button>
             <button id="stopAuto" class="danger" disabled>Stop auto capture</button>
