@@ -1,27 +1,603 @@
 const $ = (id) => document.getElementById(id);
-const isPanel = new URLSearchParams(location.search).get('mode') === 'panel';
-const els = { filename: $('filename'), start: $('start'), end: $('end'), capture: $('capture'), next: $('next'), startAuto: $('startAuto'), stopAuto: $('stopAuto'), chooseNext: $('chooseNext'), forgetNext: $('forgetNext'), nextStatus: $('nextStatus'), openPanel: $('openPanel'), modeNotice: $('modeNotice'), autoStatus: $('autoStatus'), state: $('state'), count: $('count'), lastPage: $('lastPage'), message: $('message') };
-let session = { active: false, filename: 'README.md', pages: [] }; let automation = { active: false, status: '' }; let pickerStatus = { status: '', hostname: '', message: '' }; let currentHost = ''; let selectors = {};
-document.addEventListener('DOMContentLoaded', async () => { await restore(); els.start.addEventListener('click', startSession); els.end.addEventListener('click', endSession); els.capture.addEventListener('click', capturePage); els.next.addEventListener('click', openNextPage); els.startAuto.addEventListener('click', startAuto); els.stopAuto.addEventListener('click', stopAuto); els.chooseNext.addEventListener('click', chooseNext); els.forgetNext.addEventListener('click', forgetNext); if (isPanel) { els.openPanel.hidden = true; els.modeNotice.hidden = false; } else els.openPanel.addEventListener('click', openStickyPanel); chrome.storage.onChanged.addListener(async (changes) => { if (changes.docsToReadmeSession) session = normalizeSession(changes.docsToReadmeSession.newValue); if (changes.docsToReadmeAutomation) automation = changes.docsToReadmeAutomation.newValue || { active: false, status: '' }; if (changes.docsToReadmeSelectors || changes.docsToReadmePicker) await refreshCurrentSite(); render(); }); chrome.tabs.onActivated.addListener(() => refreshCurrentSite().then(render)); chrome.tabs.onUpdated.addListener((tabId, info) => { if (info.status === 'complete') refreshCurrentSite().then(render); }); });
-const normalizeSession = (s) => ({ active: Boolean(s?.active), filename: s?.filename || 'README.md', pages: Array.isArray(s?.pages) ? s.pages : [] });
-async function restore() { const s = await chrome.storage.local.get(['docsToReadmeSession','docsToReadmeAutomation','docsToReadmePicker','docsToReadmeSelectors']); session = normalizeSession(s.docsToReadmeSession); automation = s.docsToReadmeAutomation || automation; pickerStatus = s.docsToReadmePicker || pickerStatus; selectors = s.docsToReadmeSelectors || {}; els.filename.value = session.filename.replace(/\.md$/i, ''); await refreshCurrentSite(); render(); }
-async function refreshCurrentSite() { const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); currentHost = tab?.url && /^https?:/i.test(tab.url) ? new URL(tab.url).hostname : ''; if (!currentHost) { pickerStatus = { status: '', hostname: '', message: '' }; return; } const s = await chrome.storage.local.get(['docsToReadmeSelectors','docsToReadmePicker']); selectors = s.docsToReadmeSelectors || {}; const status = s.docsToReadmePicker || {}; const validStatus = status.hostname === currentHost && !(status.status === 'selected' && !selectors[currentHost]); pickerStatus = validStatus ? status : { status: selectors[currentHost] ? 'selected' : '', hostname: currentHost, message: '' }; }
-async function persist() { await chrome.storage.local.set({ docsToReadmeSession: session }); }
-function setMessage(t, e = false) { els.message.textContent = t; els.message.className = `message${e ? ' error' : ''}`; }
-function render() { const active = session.active; const auto = Boolean(automation.active); const hasChosen = Boolean(currentHost && selectors[currentHost]); document.body.dataset.session = active ? 'active' : 'idle'; document.getElementById('autoDisclosure').open = isPanel || auto; const navigationDisclosure = document.getElementById('navigationDisclosure'); navigationDisclosure.open = isPanel; navigationDisclosure.querySelector('summary small').textContent = hasChosen ? 'Configured' : 'Optional'; const compact = active; const setupCard = document.querySelector('.setup-card'); setupCard.classList.toggle('compact', compact); setupCard.dataset.name = session.filename; setupCard.querySelector('.filename').dataset.name = session.filename; const setupHeading = setupCard.querySelector('.section-heading'); if (setupHeading) setupHeading.setAttribute('aria-hidden', compact ? 'true' : 'false'); els.state.textContent = active ? 'Session in progress' : 'No active session'; els.state.className = `pill${active ? ' active' : ''}`; els.count.textContent = `${session.pages.length} page${session.pages.length === 1 ? '' : 's'}`; els.start.disabled = active; els.end.disabled = !active; els.capture.disabled = !active || auto; els.next.disabled = !active || auto; els.startAuto.disabled = !active || auto; els.stopAuto.disabled = !auto; els.chooseNext.disabled = auto; els.forgetNext.disabled = !hasChosen || auto; els.autoStatus.hidden = !auto && !automation.status; els.autoStatus.textContent = automation.status || ''; els.nextStatus.hidden = !currentHost; els.nextStatus.textContent = pickerStatus.message || (hasChosen ? `Using a chosen next button for ${currentHost}.` : `No chosen next button for ${currentHost}.`); if (session.pages.length) els.lastPage.textContent = `Last captured: ${session.pages.at(-1).title || session.pages.at(-1).url}`; }
-async function activeTab() { const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); if (!tab?.id || !/^https?:/i.test(tab.url || '')) throw new Error('Open a documentation page in a normal browser tab first.'); return tab; }
-async function startSession() { const n = (els.filename.value.trim() || 'README').replace(/\.md$/i, '').replace(/[\\/:*?"<>|]/g, '-'); session = { active: true, filename: `${n}.md`, pages: [] }; await persist(); render(); setMessage('Session started. Capture the page in your active tab.'); }
-async function capturePage() { try { const tab = await activeTab(); setMessage('Reading page…'); const [r, m] = await Promise.all([chrome.scripting.executeScript({ target: { tabId: tab.id }, func: pageToMarkdown }), chrome.scripting.executeScript({ target: { tabId: tab.id }, func: collectMedia })]); const page = r?.[0]?.result; if (!page) throw new Error('No readable content found on this page.'); page.media = m?.[0]?.result || []; page.markdown += page.media.map((x) => x.kind === 'video' ? `\n\n[Video: ${x.url}](${x.downloadable ? x.token : x.url})` : `\n\n![${x.alt || 'Image'}](${x.token})`).join(''); if (!page.markdown) throw new Error('No readable content found on this page.'); if (session.pages.some((p) => pageIdentity(p) === pageIdentity(page))) return setMessage('This page is already in the session.', true); session.pages.push(page); await persist(); render(); setMessage(`Captured “${page.title || page.url}”.`); } catch (e) { setMessage(e.message, true); } }
-async function openNextPage() { try { const tab = await activeTab(); const s = await chrome.storage.local.get('docsToReadmeSelectors'); const selector = s.docsToReadmeSelectors?.[new URL(tab.url).hostname] || null; const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: findNextLink, args: [selector] }); if (!result) throw new Error('No “next” page link was found.'); if (result.href) await chrome.tabs.update(tab.id, { url: result.href }); else if (!result.clicked) throw new Error('The chosen next button is no longer on this page.'); } catch (e) { setMessage(e.message, true); } }
-async function startAuto() { if (!session.active) return setMessage('Start a session before starting auto capture.', true); const r = await chrome.runtime.sendMessage({ type: 'startAuto' }); if (!r?.ok) setMessage(r?.error || 'Unable to start auto capture.', true); }
-async function stopAuto() { await chrome.runtime.sendMessage({ type: 'stopAuto' }); setMessage('Auto capture stopped.'); }
-async function chooseNext() { try { const tab = await activeTab(); await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['next-picker.js'] }); setMessage('Choose the next button in the page. Press Escape to cancel.'); } catch (e) { setMessage(e.message, true); } }
-async function forgetNext() { const tab = await activeTab(); await chrome.runtime.sendMessage({ type: 'forgetSelector', hostname: new URL(tab.url).hostname }); setMessage('Forgot the chosen button for this site.'); }
-async function openStickyPanel() { try { const tab = await activeTab(); await chrome.sidePanel.open({ windowId: tab.windowId }); } catch (e) { setMessage(e.message, true); } }
-async function endSession() { if (automation.active) await stopAuto(); if (!session.pages.length) return setMessage('Capture at least one page before ending the session.', true); setMessage('Preparing Markdown and media…'); try { const localized = await localizePages(session.pages); const content = buildReadme(localized.pages); const baseName = session.filename.replace(/\.md$/i, ''); if (localized.assets.length) { const entries = [{ name: session.filename, data: new TextEncoder().encode(content) }, ...localized.assets.map((a) => ({ name: `assets/${a.name}`, data: a.data }))]; const blob = new Blob([basoraZip(entries)], { type: 'application/zip' }); const objectUrl = URL.createObjectURL(blob); await chrome.downloads.download({ url: objectUrl, filename: `${baseName}.zip`, saveAs: true }); setTimeout(() => URL.revokeObjectURL(objectUrl), 60000); } else await chrome.downloads.download({ url: `data:text/markdown;charset=utf-8,${encodeURIComponent(content)}`, filename: session.filename, saveAs: true }); session = { active: false, filename: session.filename, pages: [] }; await persist(); render(); setMessage(`Downloaded ${localized.assets.length ? `${baseName}.zip` : session.filename}.`); } catch (e) { setMessage(`Export completed with errors: ${e.message}`, true); } }
-async function localizePages(pages) { const assets = []; let total = 0; let imageCount = 0; let videoCount = 0; const seen = new Map(); const updated = pages.map((page) => ({ ...page, markdown: page.markdown, media: page.media || [] })); for (const page of updated) for (const media of page.media) { if (media.kind === 'video' && !media.downloadable) continue; const key = media.kind + '|' + (media.url || media.svg); if (seen.has(key)) { page.markdown = page.markdown.replaceAll(media.token, `assets/${seen.get(key)}`); continue; } try { let data; let ext = media.kind === 'svg' ? 'svg' : 'bin'; const perFileLimit = media.kind === 'video' ? 50 * 1024 * 1024 : 5 * 1024 * 1024; const totalLimit = 100 * 1024 * 1024; if (media.kind === 'svg') data = new TextEncoder().encode(media.svg); else { const response = await fetch(media.url); if (!response.ok) throw new Error(`HTTP ${response.status}`); const declaredLength = Number(response.headers.get('content-length') || 0); if (declaredLength > perFileLimit || total + declaredLength > totalLimit) throw new Error('asset size limit reached'); const mime = (response.headers.get('content-type') || '').split(';')[0].toLowerCase(); if (media.kind === 'video' && !mime.startsWith('video/') && !/\.(mp4|webm|ogg)(\?|$)/i.test(media.url)) throw new Error('URL did not return a video'); data = new Uint8Array(await response.arrayBuffer()); const mimeExt = { 'image/jpeg':'jpg', 'image/jpg':'jpg', 'image/png':'png', 'image/gif':'gif', 'image/webp':'webp', 'image/svg+xml':'svg', 'image/avif':'avif', 'video/mp4':'mp4', 'video/webm':'webm', 'video/ogg':'ogg' }; ext = mimeExt[mime] || (media.url.split('?')[0].split('.').pop() || 'bin').replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin'; } if (data.length > perFileLimit || total + data.length > totalLimit) throw new Error('asset size limit reached'); const name = media.kind === 'video' ? `video-${++videoCount}.${ext}` : `image-${++imageCount}.${ext}`; assets.push({ name, data }); total += data.length; seen.set(key, name); page.markdown = page.markdown.replaceAll(media.token, `assets/${name}`); } catch (_) { page.markdown = page.markdown.replaceAll(media.token, media.url || ''); } } return { pages: updated, assets }; }
-function buildReadme(pages) { return `# ${pages.length === 1 ? pages[0].title : 'Documentation'}\n\n${pages.map((p, i) => `---\n\n## ${i + 1}. ${p.title || 'Untitled page'}\n\n_Source: [${p.url}](${p.url})_\n\n${p.markdown.trim()}`).join('\n\n')}\n`; }
-function pageIdentity(page) { return `${page?.url || ''}\n${page?.title || ''}\n${page?.markdown || ''}`; }
-function findNextLink(selector) { if (selector) { const e = document.querySelector(selector); if (e) { if (e.href) return { href: e.href }; e.click(); return { clicked: true }; } } const a = [...document.querySelectorAll('a[href]')].find((x) => x.rel === 'next' || /^(next|next page|›|→)$/i.test(x.textContent.trim()) || /\bnext\b/i.test(x.getAttribute('aria-label') || '')); return a ? { href: a.href } : null; }
-function pageToMarkdown() { const root = document.querySelector('article,main,[role="main"]') || document.body; const clone = root.cloneNode(true); clone.querySelectorAll('script,style,noscript,nav,header,footer,aside,form,[aria-hidden="true"]').forEach((n) => n.remove()); const clean = (v) => v.replace(/\u00a0/g,' ').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim(); const inline = (n) => { if (n.nodeType === Node.TEXT_NODE) return n.nodeValue; if (n.nodeType !== 1) return ''; const t = n.tagName.toLowerCase(); const x = [...n.childNodes].map(inline).join(''); if (t === 'a' && n.href) return `[${clean(x)}](${n.href})`; if (t === 'strong' || t === 'b') return `**${clean(x)}**`; if (t === 'em' || t === 'i') return `*${clean(x)}*`; if (t === 'code' && n.parentElement?.tagName.toLowerCase() !== 'pre') return `\`${x.trim()}\``; return x; }; const block = (n) => { if (n.nodeType === Node.TEXT_NODE) return n.nodeValue; if (n.nodeType !== 1) return ''; const t = n.tagName.toLowerCase(); if (/^h[1-6]$/.test(t)) return `${'#'.repeat(+t[1])} ${clean([...n.childNodes].map(inline).join(''))}\n\n`; if (t === 'pre') return `\n\n    ${n.innerText.trim().replace(/\n/g,'\n    ')}\n\n`; if (t === 'li') return `- ${clean([...n.childNodes].map(inline).join(''))}\n`; return ['p','div','section','article','blockquote','table','tr'].includes(t) ? `${[...n.childNodes].map(block).join('')}\n` : [...n.childNodes].map(block).join(''); }; return { title: document.querySelector('h1')?.innerText.trim() || document.title.trim(), url: location.href, markdown: clean(block(clone)) }; }
-function collectMedia() { const out = []; let i = 0; const root = document.querySelector('article,main,[role="main"]') || document.body; const add = (kind, url, alt, svg, downloadable = false) => { if (!url && !svg) return; const token = `@@BASORA_MEDIA_${i++}@@`; out.push({ kind, url: url || '', alt: alt || '', svg: svg || '', token, downloadable }); }; root.querySelectorAll('img').forEach((img) => { if ((img.naturalWidth && img.naturalWidth < 24 && img.naturalHeight < 24 && !img.alt) || (!img.currentSrc && !img.src)) return; add('image', img.currentSrc || img.src, img.alt, ''); }); root.querySelectorAll('svg').forEach((svg) => { const text = svg.textContent.trim(); const label = svg.getAttribute('aria-label') || svg.getAttribute('role') === 'img'; if (label || text.length > 40 || svg.getBoundingClientRect().width > 80) add('svg', '', typeof label === 'string' ? label : 'Diagram', new XMLSerializer().serializeToString(svg)); }); root.querySelectorAll('iframe[src],video source[src],video[src]').forEach((node) => { const url = node.src || node.getAttribute('src'); if (/youtube|youtu\.be|vimeo|\.(mp4|webm|ogg)(\?|$)/i.test(url || '')) add('video', url, '', '', node.tagName.toLowerCase() !== 'iframe'); }); return out; }
+const isPanel = new URLSearchParams(location.search).get("mode") === "panel";
+const els = {
+  filename: $("filename"),
+  start: $("start"),
+  end: $("end"),
+  capture: $("capture"),
+  next: $("next"),
+  startAuto: $("startAuto"),
+  stopAuto: $("stopAuto"),
+  chooseNext: $("chooseNext"),
+  forgetNext: $("forgetNext"),
+  nextStatus: $("nextStatus"),
+  openPanel: $("openPanel"),
+  modeNotice: $("modeNotice"),
+  autoStatus: $("autoStatus"),
+  state: $("state"),
+  count: $("count"),
+  lastPage: $("lastPage"),
+  message: $("message"),
+};
+let session = { active: false, filename: "README.md", pages: [] };
+let automation = { active: false, status: "" };
+let pickerStatus = { status: "", hostname: "", message: "" };
+let currentHost = "";
+let selectors = {};
+document.addEventListener("DOMContentLoaded", async () => {
+  await restore();
+  els.start.addEventListener("click", startSession);
+  els.end.addEventListener("click", endSession);
+  els.capture.addEventListener("click", capturePage);
+  els.next.addEventListener("click", openNextPage);
+  els.startAuto.addEventListener("click", startAuto);
+  els.stopAuto.addEventListener("click", stopAuto);
+  els.chooseNext.addEventListener("click", chooseNext);
+  els.forgetNext.addEventListener("click", forgetNext);
+  if (isPanel) {
+    els.openPanel.hidden = true;
+    els.modeNotice.hidden = false;
+  } else els.openPanel.addEventListener("click", openStickyPanel);
+  chrome.storage.onChanged.addListener(async (changes) => {
+    if (changes.docsToReadmeSession)
+      session = normalizeSession(changes.docsToReadmeSession.newValue);
+    if (changes.docsToReadmeAutomation)
+      automation = changes.docsToReadmeAutomation.newValue || {
+        active: false,
+        status: "",
+      };
+    if (changes.docsToReadmeSelectors || changes.docsToReadmePicker)
+      await refreshCurrentSite();
+    render();
+  });
+  chrome.tabs.onActivated.addListener(() => refreshCurrentSite().then(render));
+  chrome.tabs.onUpdated.addListener((tabId, info) => {
+    if (info.status === "complete") refreshCurrentSite().then(render);
+  });
+});
+const normalizeSession = (s) => ({
+  active: Boolean(s?.active),
+  filename: s?.filename || "README.md",
+  pages: Array.isArray(s?.pages) ? s.pages : [],
+});
+async function restore() {
+  const s = await chrome.storage.local.get([
+    "docsToReadmeSession",
+    "docsToReadmeAutomation",
+    "docsToReadmePicker",
+    "docsToReadmeSelectors",
+  ]);
+  session = normalizeSession(s.docsToReadmeSession);
+  automation = s.docsToReadmeAutomation || automation;
+  pickerStatus = s.docsToReadmePicker || pickerStatus;
+  selectors = s.docsToReadmeSelectors || {};
+  els.filename.value = session.filename.replace(/\.md$/i, "");
+  await refreshCurrentSite();
+  render();
+}
+async function refreshCurrentSite() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  currentHost =
+    tab?.url && /^https?:/i.test(tab.url) ? new URL(tab.url).hostname : "";
+  if (!currentHost) {
+    pickerStatus = { status: "", hostname: "", message: "" };
+    return;
+  }
+  const s = await chrome.storage.local.get([
+    "docsToReadmeSelectors",
+    "docsToReadmePicker",
+  ]);
+  selectors = s.docsToReadmeSelectors || {};
+  const status = s.docsToReadmePicker || {};
+  const validStatus =
+    status.hostname === currentHost &&
+    !(status.status === "selected" && !selectors[currentHost]);
+  pickerStatus = validStatus
+    ? status
+    : {
+        status: selectors[currentHost] ? "selected" : "",
+        hostname: currentHost,
+        message: "",
+      };
+}
+async function persist() {
+  await chrome.storage.local.set({ docsToReadmeSession: session });
+}
+function setMessage(t, e = false) {
+  els.message.textContent = t;
+  els.message.className = `message${e ? " error" : ""}`;
+}
+function render() {
+  const active = session.active;
+  const auto = Boolean(automation.active);
+  const hasChosen = Boolean(currentHost && selectors[currentHost]);
+  document.body.dataset.session = active ? "active" : "idle";
+  document.getElementById("autoDisclosure").open = isPanel || auto;
+  const navigationDisclosure = document.getElementById("navigationDisclosure");
+  navigationDisclosure.open = isPanel;
+  navigationDisclosure.querySelector("summary small").textContent = hasChosen
+    ? "Configured"
+    : "Optional";
+  const compact = active;
+  const setupCard = document.querySelector(".setup-card");
+  setupCard.classList.toggle("compact", compact);
+  setupCard.dataset.name = session.filename;
+  setupCard.querySelector(".filename").dataset.name = session.filename;
+  const setupHeading = setupCard.querySelector(".section-heading");
+  if (setupHeading)
+    setupHeading.setAttribute("aria-hidden", compact ? "true" : "false");
+  els.state.textContent = active ? "Session in progress" : "No active session";
+  els.state.className = `pill${active ? " active" : ""}`;
+  els.count.textContent = `${session.pages.length} page${session.pages.length === 1 ? "" : "s"}`;
+  els.start.disabled = active;
+  els.end.disabled = !active;
+  els.capture.disabled = !active || auto;
+  els.next.disabled = !active || auto;
+  els.startAuto.disabled = !active || auto;
+  els.stopAuto.disabled = !auto;
+  els.chooseNext.disabled = auto;
+  els.forgetNext.disabled = !hasChosen || auto;
+  els.autoStatus.hidden = !auto && !automation.status;
+  els.autoStatus.textContent = automation.status || "";
+  els.nextStatus.hidden = !currentHost;
+  els.nextStatus.textContent =
+    pickerStatus.message ||
+    (hasChosen
+      ? `Using a chosen next button for ${currentHost}.`
+      : `No chosen next button for ${currentHost}.`);
+  if (session.pages.length)
+    els.lastPage.textContent = `Last captured: ${session.pages.at(-1).title || session.pages.at(-1).url}`;
+}
+async function activeTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !/^https?:/i.test(tab.url || ""))
+    throw new Error("Open a documentation page in a normal browser tab first.");
+  return tab;
+}
+async function startSession() {
+  const n = (els.filename.value.trim() || "README")
+    .replace(/\.md$/i, "")
+    .replace(/[\\/:*?"<>|]/g, "-");
+  session = { active: true, filename: `${n}.md`, pages: [] };
+  await persist();
+  render();
+  setMessage("Session started. Capture the page in your active tab.");
+}
+async function capturePage() {
+  try {
+    const tab = await activeTab();
+    setMessage("Reading page…");
+    const [r, m] = await Promise.all([
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: pageToMarkdown,
+      }),
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: collectMedia,
+      }),
+    ]);
+    const page = r?.[0]?.result;
+    if (!page) throw new Error("No readable content found on this page.");
+    page.media = m?.[0]?.result || [];
+    page.markdown += page.media
+      .map((x) =>
+        x.kind === "video"
+          ? `\n\n[Video: ${x.url}](${x.downloadable ? x.token : x.url})`
+          : `\n\n![${x.alt || "Image"}](${x.token})`,
+      )
+      .join("");
+    if (!page.markdown)
+      throw new Error("No readable content found on this page.");
+    if (session.pages.some((p) => pageIdentity(p) === pageIdentity(page)))
+      return setMessage("This page is already in the session.", true);
+    session.pages.push(page);
+    await persist();
+    render();
+    setMessage(`Captured “${page.title || page.url}”.`);
+  } catch (e) {
+    setMessage(e.message, true);
+  }
+}
+async function openNextPage() {
+  try {
+    const tab = await activeTab();
+    const s = await chrome.storage.local.get("docsToReadmeSelectors");
+    const selector =
+      s.docsToReadmeSelectors?.[new URL(tab.url).hostname] || null;
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: findNextLink,
+      args: [selector],
+    });
+    if (!result) throw new Error("No “next” page link was found.");
+    if (result.href) await chrome.tabs.update(tab.id, { url: result.href });
+    else if (!result.clicked)
+      throw new Error("The chosen next button is no longer on this page.");
+  } catch (e) {
+    setMessage(e.message, true);
+  }
+}
+async function startAuto() {
+  if (!session.active)
+    return setMessage("Start a session before starting auto capture.", true);
+  const r = await chrome.runtime.sendMessage({ type: "startAuto" });
+  if (!r?.ok) setMessage(r?.error || "Unable to start auto capture.", true);
+}
+async function stopAuto() {
+  await chrome.runtime.sendMessage({ type: "stopAuto" });
+  setMessage("Auto capture stopped.");
+}
+async function chooseNext() {
+  try {
+    const tab = await activeTab();
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["next-picker.js"],
+    });
+    setMessage("Choose the next button in the page. Press Escape to cancel.");
+  } catch (e) {
+    setMessage(e.message, true);
+  }
+}
+async function forgetNext() {
+  const tab = await activeTab();
+  await chrome.runtime.sendMessage({
+    type: "forgetSelector",
+    hostname: new URL(tab.url).hostname,
+  });
+  setMessage("Forgot the chosen button for this site.");
+}
+async function openStickyPanel() {
+  try {
+    const tab = await activeTab();
+    await chrome.sidePanel.open({ windowId: tab.windowId });
+  } catch (e) {
+    setMessage(e.message, true);
+  }
+}
+async function endSession() {
+  if (automation.active) await stopAuto();
+  if (!session.pages.length)
+    return setMessage(
+      "Capture at least one page before ending the session.",
+      true,
+    );
+  setMessage("Preparing Markdown and media…");
+  try {
+    const localized = await localizePages(session.pages);
+    const content = buildReadme(localized.pages);
+    const baseName = session.filename.replace(/\.md$/i, "");
+    if (localized.assets.length) {
+      const entries = [
+        { name: session.filename, data: new TextEncoder().encode(content) },
+        ...localized.assets.map((a) => ({
+          name: `assets/${a.name}`,
+          data: a.data,
+        })),
+      ];
+      const blob = new Blob([basoraZip(entries)], { type: "application/zip" });
+      const objectUrl = URL.createObjectURL(blob);
+      await chrome.downloads.download({
+        url: objectUrl,
+        filename: `${baseName}.zip`,
+        saveAs: true,
+      });
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    } else
+      await chrome.downloads.download({
+        url: `data:text/markdown;charset=utf-8,${encodeURIComponent(content)}`,
+        filename: session.filename,
+        saveAs: true,
+      });
+    session = { active: false, filename: session.filename, pages: [] };
+    await persist();
+    render();
+    setMessage(
+      `Downloaded ${localized.assets.length ? `${baseName}.zip` : session.filename}.`,
+    );
+  } catch (e) {
+    setMessage(`Export completed with errors: ${e.message}`, true);
+  }
+}
+async function localizePages(pages) {
+  const assets = [];
+  let total = 0;
+  let imageCount = 0;
+  let videoCount = 0;
+  const seen = new Map();
+  const updated = pages.map((page) => ({
+    ...page,
+    markdown: page.markdown,
+    media: page.media || [],
+  }));
+  for (const page of updated)
+    for (const media of page.media) {
+      if (media.kind === "video" && !media.downloadable) continue;
+      const key = media.kind + "|" + (media.url || media.svg);
+      if (seen.has(key)) {
+        page.markdown = page.markdown.replaceAll(
+          media.token,
+          `assets/${seen.get(key)}`,
+        );
+        continue;
+      }
+      try {
+        let data;
+        let ext = media.kind === "svg" ? "svg" : "bin";
+        const perFileLimit =
+          media.kind === "video" ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
+        const totalLimit = 100 * 1024 * 1024;
+        if (media.kind === "svg") data = new TextEncoder().encode(media.svg);
+        else {
+          const response = await fetch(media.url);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const declaredLength = Number(
+            response.headers.get("content-length") || 0,
+          );
+          if (
+            declaredLength > perFileLimit ||
+            total + declaredLength > totalLimit
+          )
+            throw new Error("asset size limit reached");
+          const mime = (response.headers.get("content-type") || "")
+            .split(";")[0]
+            .toLowerCase();
+          if (
+            media.kind === "video" &&
+            !mime.startsWith("video/") &&
+            !/\.(mp4|webm|ogg)(\?|$)/i.test(media.url)
+          )
+            throw new Error("URL did not return a video");
+          data = new Uint8Array(await response.arrayBuffer());
+          const mimeExt = {
+            "image/jpeg": "jpg",
+            "image/jpg": "jpg",
+            "image/png": "png",
+            "image/gif": "gif",
+            "image/webp": "webp",
+            "image/svg+xml": "svg",
+            "image/avif": "avif",
+            "video/mp4": "mp4",
+            "video/webm": "webm",
+            "video/ogg": "ogg",
+          };
+          ext =
+            mimeExt[mime] ||
+            (media.url.split("?")[0].split(".").pop() || "bin")
+              .replace(/[^a-z0-9]/gi, "")
+              .slice(0, 8) ||
+            "bin";
+        }
+        if (data.length > perFileLimit || total + data.length > totalLimit)
+          throw new Error("asset size limit reached");
+        const name =
+          media.kind === "video"
+            ? `video-${++videoCount}.${ext}`
+            : `image-${++imageCount}.${ext}`;
+        assets.push({ name, data });
+        total += data.length;
+        seen.set(key, name);
+        page.markdown = page.markdown.replaceAll(media.token, `assets/${name}`);
+      } catch (_) {
+        page.markdown = page.markdown.replaceAll(media.token, media.url || "");
+      }
+    }
+  return { pages: updated, assets };
+}
+function buildReadme(pages) {
+  if (pages.length === 1) {
+    const page = pages[0];
+    return `# ${page.title || "Documentation"}\n\n_Source: [${page.url}](${page.url})_\n\n${page.markdown.trim()}\n`;
+  }
+  const demote = (markdown) => markdown.replace(/^(#{1,5})(?= )/gm, "#$1");
+  return `# Documentation\n\n${pages.map((p, i) => `---\n\n## ${i + 1}. ${p.title || "Untitled page"}\n\n_Source: [${p.url}](${p.url})_\n\n${demote(p.markdown.trim())}`).join("\n\n")}\n`;
+}
+function pageIdentity(page) {
+  return `${page?.url || ""}\n${page?.title || ""}\n${page?.markdown || ""}`;
+}
+function findNextLink(selector) {
+  if (selector) {
+    const e = document.querySelector(selector);
+    if (e) {
+      if (e.href) return { href: e.href };
+      e.click();
+      return { clicked: true };
+    }
+  }
+  const a = [...document.querySelectorAll("a[href]")].find(
+    (x) =>
+      x.rel === "next" ||
+      /^(next|next page|›|→)$/i.test(x.textContent.trim()) ||
+      /\bnext\b/i.test(x.getAttribute("aria-label") || ""),
+  );
+  return a ? { href: a.href } : null;
+}
+function pageToMarkdown() {
+  const root =
+    document.querySelector('article,main,[role="main"]') || document.body;
+  const clone = root.cloneNode(true);
+  clone
+    .querySelectorAll(
+    'script,style,noscript,nav,header,footer,aside,form,button,[aria-hidden="true"],.header-anchor,.VPDocFooter,.lang',
+    )
+    .forEach((n) => n.remove());
+  clone.querySelector("h1")?.remove();
+  const cleanInline = (v) =>
+    v
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const inline = (n) => {
+    if (n.nodeType === Node.TEXT_NODE) return n.nodeValue;
+    if (n.nodeType !== Node.ELEMENT_NODE) return "";
+    const t = n.tagName.toLowerCase();
+    if (["img", "svg", "video", "iframe"].includes(t)) return "";
+    if (t === "br") return "\n";
+    const x = [...n.childNodes].map(inline).join("");
+    if (t === "a" && n.href)
+      return x.trim() ? `[${cleanInline(x)}](${n.href})` : "";
+    if (t === "code" && n.parentElement?.tagName.toLowerCase() !== "pre") {
+      const code = x.trim();
+      const fence = code.includes("`") ? "``" : "`";
+      return `${fence}${code}${fence}`;
+    }
+    if (t === "strong" || t === "b") return `**${cleanInline(x)}**`;
+    if (t === "em" || t === "i") return `*${cleanInline(x)}*`;
+    if (t === "del" || t === "s") return `~~${cleanInline(x)}~~`;
+    return x;
+  };
+  const list = (n, depth = 0) =>
+    [...n.children]
+      .filter((x) => x.tagName.toLowerCase() === "li")
+      .map((li, i) => {
+        const nested = [...li.children].filter((x) =>
+          ["ul", "ol"].includes(x.tagName.toLowerCase()),
+        );
+        const own = [...li.childNodes]
+          .filter((x) => !nested.includes(x))
+          .map(inline)
+          .join("");
+        const marker = n.tagName.toLowerCase() === "ol" ? `${i + 1}.` : "-";
+        const first = `${"  ".repeat(depth)}${marker} ${cleanInline(own)}`;
+        const children = nested.map((x) => list(x, depth + 1)).join("\n");
+        return children ? `${first}\n${children}` : first;
+      })
+      .join("\n");
+  const table = (n) => {
+    const rows = [...n.querySelectorAll("tr")]
+      .map((r) =>
+        [...r.children]
+          .filter((c) => /^(TH|TD)$/.test(c.tagName))
+          .map((c) =>
+            cleanInline([...c.childNodes].map(inline).join("")).replace(
+              /\|/g,
+              "\\|",
+            ),
+          ),
+      )
+      .filter((r) => r.length);
+    if (!rows.length) return "";
+    const width = Math.max(...rows.map((r) => r.length));
+    const pad = (r) => [...r, ...Array(width - r.length).fill("")];
+    const header = pad(rows[0]);
+    return `| ${header.join(" | ")} |\n| ${header.map(() => "---").join(" | ")} |\n${rows
+      .slice(1)
+      .map((r) => `| ${pad(r).join(" | ")} |`)
+      .join("\n")}\n\n`;
+  };
+  const block = (n) => {
+    if (n.nodeType === Node.TEXT_NODE) return n.nodeValue;
+    if (n.nodeType !== Node.ELEMENT_NODE) return "";
+    const t = n.tagName.toLowerCase();
+    if (/^h[1-6]$/.test(t))
+      return `${"#".repeat(Number(t[1]))} ${cleanInline([...n.childNodes].map(inline).join(""))}\n\n`;
+    if (t === "pre") {
+      const code = (
+        n.querySelector("code")?.textContent ||
+        n.textContent ||
+        ""
+      ).replace(/\n$/, "");
+      const language =
+        n.parentElement?.className.match(/(?:^|\s)language-([\w+-]+)/)?.[1] ||
+        "";
+      const fence = code.includes("```") ? "````" : "```";
+      return `${fence}${language}\n${code}\n${fence}\n\n`;
+    }
+    if (t === "ul" || t === "ol") return `${list(n)}\n\n`;
+    if (t === "table") return table(n);
+    if (n.classList.contains("custom-block")) {
+      const title = n.querySelector(":scope > .custom-block-title");
+      const body = [...n.childNodes]
+        .filter((x) => x !== title)
+        .map(block)
+        .join("")
+        .trim();
+      const value = `**${cleanInline(title?.textContent || "Note")}**\n\n${body}`;
+      return `${value
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n")}\n\n`;
+    }
+    if (t === "blockquote") {
+      const value = [...n.childNodes].map(block).join("").trim();
+      return `${value
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n")}\n\n`;
+    }
+    if (t === "hr") return "---\n\n";
+    if (t === "p")
+      return `${cleanInline([...n.childNodes].map(inline).join(""))}\n\n`;
+    if (t === "details") {
+      const summary = n.querySelector(":scope > summary");
+      const body = [...n.childNodes]
+        .filter((x) => x !== summary)
+        .map(block)
+        .join("")
+        .trim();
+      return `**${cleanInline(summary?.textContent || "Details")}**\n\n${body}\n\n`;
+    }
+    return [...n.childNodes].map(block).join("");
+  };
+  const markdown = block(clone)
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return {
+    title:
+      document.querySelector("h1")?.innerText.replace(/\u200b/g, "").trim() ||
+      document.title.trim(),
+    url: location.href,
+    markdown,
+  };
+}
+function collectMedia() {
+  const out = [];
+  let i = 0;
+  const root =
+    document.querySelector('article,main,[role="main"]') || document.body;
+  const add = (kind, url, alt, svg, downloadable = false) => {
+    if (!url && !svg) return;
+    const token = `@@BASORA_MEDIA_${i++}@@`;
+    out.push({
+      kind,
+      url: url || "",
+      alt: alt || "",
+      svg: svg || "",
+      token,
+      downloadable,
+    });
+  };
+  root.querySelectorAll("img").forEach((img) => {
+    if (
+      (img.naturalWidth &&
+        img.naturalWidth < 24 &&
+        img.naturalHeight < 24 &&
+        !img.alt) ||
+      (!img.currentSrc && !img.src)
+    )
+      return;
+    add("image", img.currentSrc || img.src, img.alt, "");
+  });
+  root.querySelectorAll("svg").forEach((svg) => {
+    const text = svg.textContent.trim();
+    const label =
+      svg.getAttribute("aria-label") || svg.getAttribute("role") === "img";
+    if (label || text.length > 40 || svg.getBoundingClientRect().width > 80)
+      add(
+        "svg",
+        "",
+        typeof label === "string" ? label : "Diagram",
+        new XMLSerializer().serializeToString(svg),
+      );
+  });
+  root
+    .querySelectorAll("iframe[src],video source[src],video[src]")
+    .forEach((node) => {
+      const url = node.src || node.getAttribute("src");
+      if (/youtube|youtu\.be|vimeo|\.(mp4|webm|ogg)(\?|$)/i.test(url || ""))
+        add("video", url, "", "", node.tagName.toLowerCase() !== "iframe");
+    });
+  return out;
+}
