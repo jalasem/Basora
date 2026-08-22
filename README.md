@@ -17,7 +17,7 @@ The supplied Basora logo and Chrome icon sizes are bundled under `assets/` and a
 3. Click **Capture page** for each page. Sessions accept unlimited unique pages until you end the session. **Open next page** detects common `rel="next"`, “Next”, and “Next page” links and opens the following page; reopen the popup (or use the sticky panel) to capture it.
 4. Click **End & download**. The assembled Markdown is saved with the chosen filename.
 
-Images and inline SVG diagrams are preserved as tokenized media. When accessible image assets can be localized, Basora downloads a ZIP containing the Markdown file and an `assets/` folder; failed image fetches remain as their original remote links. YouTube, Vimeo, and public HTML5 video references are always kept as links and are never downloaded.
+Images and inline SVG diagrams are preserved as tokenized media. When accessible assets can be localized, Basora downloads a ZIP containing the Markdown file and an `assets/` folder; failed fetches remain as their original remote links. Direct public HTML5 video files are downloaded when accessible (up to 50 MB each), while embedded services such as YouTube and Vimeo remain links.
 
 To crawl a documentation sequence automatically, start a session, open its first page, and click **Start auto capture**. The background worker captures each page, follows detected next links with a randomized 1–3 second pause, waits for each page to load, and reports progress in the popup or sticky panel. Click **Stop auto capture** at any time; auto capture also stops on cycles, missing next links, tab errors, or when the session ends. It never downloads automatically.
 
