@@ -221,6 +221,31 @@ async function openNextPage() {
 async function startAuto() {
   if (!session.active)
     return setMessage("Start a session before starting auto capture.", true);
+  try {
+    const tab = await activeTab();
+    const hostname = new URL(tab.url).hostname;
+    if (!selectors[hostname]) {
+      await chrome.storage.local.set({
+        docsToReadmePendingAuto: {
+          tabId: tab.id,
+          hostname,
+          createdAt: Date.now(),
+        },
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["next-picker.js"],
+      });
+      setMessage(
+        "Choose the documentation’s Next button. Auto-capture will start as soon as it is saved.",
+      );
+      return;
+    }
+  } catch (e) {
+    await chrome.storage.local.remove("docsToReadmePendingAuto");
+    setMessage(e.message, true);
+    return;
+  }
   const r = await chrome.runtime.sendMessage({ type: "startAuto" });
   if (!r?.ok) setMessage(r?.error || "Unable to start auto capture.", true);
 }
@@ -231,6 +256,7 @@ async function stopAuto() {
 async function chooseNext() {
   try {
     const tab = await activeTab();
+    await chrome.storage.local.remove("docsToReadmePendingAuto");
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ["next-picker.js"],

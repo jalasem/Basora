@@ -60,9 +60,23 @@ async function handlePickerStatus(message, sender) {
     await saveSelector(hostname, message.selector);
   }
   await chrome.storage.local.set({ docsToReadmePicker: status });
+  const { docsToReadmePendingAuto: pending } =
+    await chrome.storage.local.get("docsToReadmePendingAuto");
+  const matchesPending =
+    pending?.tabId === sender.tab?.id && pending?.hostname === hostname;
+  if (!matchesPending || status.status === "active") return;
+  await chrome.storage.local.remove("docsToReadmePendingAuto");
+  if (status.status !== "selected") return;
+  await chrome.storage.local.set({
+    docsToReadmePicker: {
+      ...status,
+      message: "Next button saved. Auto capture is starting…",
+    },
+  });
+  await startAutomation(sender.tab);
 }
 
-async function startAutomation() {
+async function startAutomation(preferredTab = null) {
   const {
     docsToReadmeSession: session,
     docsToReadmeAutomation: persistedAutomation,
@@ -74,7 +88,9 @@ async function startAutomation() {
     throw new Error("Auto capture is already running.");
   if (!session?.active)
     throw new Error("Start a session before starting auto capture.");
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [tab] = preferredTab
+    ? [preferredTab]
+    : await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !/^https?:/i.test(tab.url || ""))
     throw new Error("Open an HTTP(S) documentation page first.");
   const runId = crypto.randomUUID();
