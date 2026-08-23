@@ -2,6 +2,8 @@
 
 Basora - Docs to README is a Manifest V3 Chrome extension for collecting documentation pages into one Markdown file.
 
+Privacy details are available in [PRIVACY.md](PRIVACY.md). Chrome Web Store submission copy and reviewer instructions are maintained in [STORE_LISTING.md](STORE_LISTING.md).
+
 ## Install locally
 
 1. Open `chrome://extensions` in Chrome.
